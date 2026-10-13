@@ -129,7 +129,7 @@ ROBITA는 (1)을 에이전트 자율 운영으로, (2)를 관리자 개입 경�
   </tr>
   <tr>
     <td align="center">
-      · 프로젝트 기획·총괄<br>
+      · 프로젝트 기획, 총괄<br>
       · 개발 일정 관리
     </td>
     <td align="center">
