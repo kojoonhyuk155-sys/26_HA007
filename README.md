@@ -110,9 +110,7 @@ ROBITA는 (1)을 에이전트 자율 운영으로, (2)를 관리자 개입 경�
 
 ## 💡 3. 시스템 구성도
 
-<!-- 아래에 시스템 구성도 이미지를 넣으세요.
-     docs/images/ 폴더에 이미지를 올린 뒤 경로를 적으면 됩니다.
-     예: ![시스템 구성도](docs/images/architecture.png) -->
+![ROBITA 시스템 구성도](docs/images/architecture.png)
 
 ### 소프트웨어 구성
 
@@ -170,12 +168,11 @@ ROBITA는 (1)을 에이전트 자율 운영으로, (2)를 관리자 개입 경�
 
 ---
 
+
 ## 💡 4. 작품 소개영상
 
-<!-- 유튜브에 영상을 올린 뒤 아래 두 군데의 VIDEO_ID 를 영상 주소의 ID 로 바꾸세요.
-     예) https://youtu.be/abc123XYZ  →  VIDEO_ID 자리에 abc123XYZ -->
+[![ROBITA 작품 소개영상](https://img.youtube.com/vi/ZF9aHI42Zic/0.jpg)](https://youtu.be/ZF9aHI42Zic)
 
-[![ROBITA 소개영상](https://img.youtube.com/vi/VIDEO_ID/0.jpg)](https://www.youtube.com/watch?v=VIDEO_ID)
 
 ---
 
