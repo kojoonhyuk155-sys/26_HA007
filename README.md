@@ -99,42 +99,58 @@ ROBITA는 (1)을 에이전트 자율 운영으로, (2)를 관리자 개입 경�
 
 
 
-## 💡 2. 팀원 소개
+
+<h2>💡 2. 팀원 소개</h2>
 
 <table>
   <tr>
     <td align="center" width="20%">
-      <img src="docs/images/team1.jpg" width="110"><br>
-      <b>멘티 · 팀장</b><br><br>
-      프로젝트 기획·총괄<br>
-      개발 일정 관리
+      <img src="docs/images/team1.jpg" width="110" height="110" style="object-fit: cover;">
     </td>
     <td align="center" width="20%">
-      <img src="docs/images/team2.jpg" width="110"><br>
-      <b>멘티 · 팀원</b><br><br>
-      UI/UX 기획 및<br>
-      프론트엔드 개발
+      <img src="docs/images/team2.jpg" width="110" height="110" style="object-fit: cover;">
     </td>
     <td align="center" width="20%">
-      <img src="docs/images/team3.jpg" width="110"><br>
-      <b>멘티 · 팀원</b><br><br>
-      AI 에이전트 개발 및<br>
-      데이터 분석
+      <img src="docs/images/team3.jpg" width="110" height="110" style="object-fit: cover;">
     </td>
     <td align="center" width="20%">
-      <img src="docs/images/team4.jpg" width="110"><br>
-      <b>멘티 · 팀원</b><br><br>
-      백엔드 개발 및<br>
-      시스템 통합
+      <img src="docs/images/team4.jpg" width="110" height="110" style="object-fit: cover;">
     </td>
     <td align="center" width="20%">
-      <img src="docs/images/team5.png" width="110"><br>
-      <b>멘토</b><br><br>
-      기술 자문 및<br>
-      개발 방향 검토
+      <img src="docs/images/team5.png" width="110" height="110" style="object-fit: cover;">
+    </td>
+  </tr>
+  <tr>
+    <th align="center">멘티 · 팀장</th>
+    <th align="center">멘티 · 팀원</th>
+    <th align="center">멘티 · 팀원</th>
+    <th align="center">멘티 · 팀원</th>
+    <th align="center">멘토</th>
+  </tr>
+  <tr>
+    <td align="center">
+      · 프로젝트 기획·총괄<br>
+      · 개발 일정 관리
+    </td>
+    <td align="center">
+      · UI/UX 기획<br>
+      · 프론트엔드 개발
+    </td>
+    <td align="center">
+      · AI 에이전트 개발<br>
+      · 데이터 분석
+    </td>
+    <td align="center">
+      · 백엔드 개발<br>
+      · 시스템 통합
+    </td>
+    <td align="center">
+      · 기술 자문<br>
+      · 개발 방향 검토
     </td>
   </tr>
 </table>
+
 
 
 
