@@ -137,8 +137,9 @@ ROBITA는 (1)을 에이전트 자율 운영으로, (2)를 관리자 개입 경�
       · 프론트엔드 개발
     </td>
     <td align="center">
-      · AI 에이전트 개발<br>
-      · 데이터 분석
+  · AI 에이전트&nbsp;개발<br>
+  · 데이터 분석
+</td>
     </td>
     <td align="center">
       · 백엔드 개발<br>
