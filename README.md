@@ -160,7 +160,7 @@ ROBITA는 (1)을 에이전트 자율 운영으로, (2)를 관리자 개입 경�
 ## 💡 3. 시스템 구성도
 
 ### · 시스템 구성도
-![ROBITA 시스템 구성도](docs/images/architecture..png)
+![ROBITA 시스템 구성도](docs/images/architecture.png)
 
 ### · 사용자용 App 흐름도
 ![사용자용 App 흐름도](docs/images/app_flow.png)
