@@ -128,6 +128,7 @@ async def _sim_loop():
     while True:
         try:
             fleet.tick()
+            await asyncio.to_thread(rider.process_reservations)
             tick_count += 1
             # 약 12틱마다 자동 호출 1건
             if tick_count % 12 == 0:
@@ -366,6 +367,7 @@ async def rider_page(request: Request):
         "llm_enabled": settings.llm_enabled,
         "llm_name": settings.llm_name,
         "area_name": area.AREA_NAME,
+        "map_center": {"lat": area.CENTER_LAT, "lng": area.CENTER_LNG},
     })
 
 
@@ -457,13 +459,45 @@ async def api_rider_book(request: Request):
     sid = str(body.get("session", "")).strip() or "anon"
     res = await asyncio.to_thread(
         rider.book, sid, str(body.get("origin", "")), str(body.get("destination", "")),
-        str(body.get("via", "") or ""), int(body.get("passengers", 1) or 1))
+        str(body.get("via", "") or ""), int(body.get("passengers", 1) or 1),
+        str(body.get("payment_method", "신한 9441")), str(body.get("request", "")))
     if res.get("ok"):
         try:
             await manager.broadcast(fleet.full_state())
         except Exception:
             pass
     return res
+
+
+@app.get("/api/rider/state")
+async def api_rider_state(session: str = "anon"):
+    return rider.state(session)
+
+
+@app.post("/api/rider/reserve")
+async def api_rider_reserve(request: Request):
+    b = await _json(request)
+    return await asyncio.to_thread(
+        rider.reserve, str(b.get("session", "")).strip() or "anon",
+        str(b.get("origin", "")), str(b.get("destination", "")), str(b.get("when", "")),
+        str(b.get("via", "")), int(b.get("passengers", 1) or 1),
+        str(b.get("payment_method", "신한 9441")), str(b.get("request", "")))
+
+
+@app.post("/api/rider/reservation/cancel")
+async def api_rider_reservation_cancel(request: Request):
+    b = await _json(request)
+    return rider.cancel_reservation(str(b.get("session", "")).strip() or "anon")
+
+
+@app.post("/api/rider/route")
+async def api_rider_select_route(request: Request):
+    b = await _json(request)
+    result = await asyncio.to_thread(rider.select_route,
+        str(b.get("session", "")).strip() or "anon", str(b.get("kind", "recommend")))
+    if result.get("ok"):
+        await manager.broadcast(fleet.full_state())
+    return result
 
 
 @app.post("/api/rider/board")
@@ -1080,16 +1114,23 @@ def _build_agent_log_core(v, use_llm: bool = True) -> list[dict]:
         })
 
     # 7) 플릿 오케스트레이터 에이전트
+    #    우선순위: 인시던트 대응 → 정비 → 기존 배차 유지 → 충전 → 재배치
     if v.incident:
         priority = "인시던트 대응 최우선 — 안전조치/견인 배차 우선 실행"
     elif risk_res["immediate_action"]:
-        priority = "정비 전환 우선 — 운행 제한 후 정비 오퍼레이션 실행"
-    elif v.battery_state in ("DANGER", "CAUTION") and v.status != STATUS_CHARGING:
-        priority = "충전 우선 — 인근 차고지 재배치 권고"
+        priority = "정비 전환 권고 — 관제 확인 후 정비 오퍼레이션 실행"
     elif v.passenger:
         priority = "현재 배차 유지 — 경로 모델 ETA 기준 정상 진행"
+        if v.battery_state == "DANGER":
+            priority += " · 하차 후 충전소 이동"
+    elif v.status == STATUS_CHARGING:
+        priority = "충전 진행 — 완충 후 운행 복귀"
+    elif v.battery_state == "DANGER":
+        priority = "충전 우선 — 인근 충전소 이동"
     else:
         priority = "수요 예측 기반 재배치 권고 — 공차 최소화"
+        if v.battery_state == "CAUTION":
+            priority += " · 배터리 주의"
     logs.append({
         "key": "orchestrator",
         "name": "플릿 오케스트레이터 에이전트",

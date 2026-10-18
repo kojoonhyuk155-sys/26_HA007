@@ -33,6 +33,8 @@ def _candidates(origin_lat: float, origin_lng: float, limit: int = 8,
             continue
         if v.status not in (STATUS_WAITING, STATUS_DRIVING):
             continue
+        if v.status == STATUS_DRIVING and not v.repositioning:
+            continue  # 승객 탑승 중인 차량은 제외(기존 배차 유지)
         if v.battery < 30:
             continue
         is_suv = getattr(v, "car_type", "SEDAN") == "SUV"

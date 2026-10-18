@@ -4,7 +4,7 @@
 
 const $ = (id) => document.getElementById(id);
 const HOME_PLACE = "한국공학대학교";                  // 앱 기본 출발지
-const CENTER = { lat: 37.340174, lng: 126.733593 };  // 한국공학대 좌표(기본 지도 중심)
+const CENTER = window.RIDER_CONFIG?.center || { lat: 37.340174, lng: 126.733593 };  // 한국공학대 좌표(기본 지도 중심)
 
 /* 세션 */
 let sid = localStorage.getItem("rider_sid");
@@ -21,11 +21,11 @@ const S = {
 
 /* ───────────────────────── 유틸 */
 const api = {
-  async get(u) { const r = await fetch(u); return r.json(); },
+  async get(u) { const r = await fetch(u); if (!r.ok) throw new Error("서버 연결 오류 (" + r.status + ")"); return r.json(); },
   async post(u, b) {
     const r = await fetch(u, { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(b || {}) });
-    return r.json();
+    if (!r.ok) throw new Error("서버 연결 오류 (" + r.status + ")"); return r.json();
   },
 };
 const won = (n) => Number(n || 0).toLocaleString("ko-KR") + "원";
@@ -37,7 +37,7 @@ function toast(msg, ms = 1800) {
 }
 function addNoti(text, warn) {
   S.notis.unshift({ text, time: nowHM(), warn: !!warn });
-  renderNotis();
+  renderNotis(); saveLocal();
 }
 function renderNotis() {
   const box = $("noti-list");
@@ -96,165 +96,132 @@ $("pop-close").addEventListener("click", closePop);
 $("dim").addEventListener("click", closePop);
 
 function setField(el, text) {
-  el.querySelector("span").textContent = text;
+  let span = el.querySelector("span");
+  if (!span) { span = document.createElement("span"); el.replaceChildren(span); }
+  span.textContent = text;
   el.classList.add("filled");
 }
 
 /* ───────────────────────── 지도 */
 const maps = {};
-let kakaoReady = false;
+const MAP_IDS = ["home-map", "call-map", "assign-map", "chat-map"];
+const fleetOv = {}, rideOv = {};
+let kakaoReady = false, lastFleet = [], lastRide = null, fleetBusy = false;
+const vehicleColors = {PICKUP:"#14b8a6",DRIVING:"#36b37e",WAITING:"#2f6fed",CHARGING:"#f5b301",MAINTENANCE:"#e5484d"};
+function visible(id) { const el=$(id); return el && el.offsetWidth>0 && el.offsetHeight>0; }
 function initMap(id) {
-  if (!kakaoReady || maps[id]) return;
-  const el = $(id);
-  if (!el || el.offsetWidth === 0 || el.offsetHeight === 0) return;  // 숨겨진 화면 → 아직 생성 X
-  maps[id] = new kakao.maps.Map(el, { center: new kakao.maps.LatLng(CENTER.lat, CENTER.lng), level: 5 });
-  setTimeout(() => maps[id].relayout(), 80);
+  if (!kakaoReady || maps[id] || !visible(id)) return;
+  const el=$(id); el.classList.remove("fail"); el.replaceChildren();
+  maps[id]=new kakao.maps.Map(el,{center:new kakao.maps.LatLng(CENTER.lat,CENTER.lng),level:5});
+  kakao.maps.event.addListener(maps[id],"tilesloaded",()=>el.dataset.tiles="loaded");
+  if (id==="home-map" || id==="call-map") drawFleet(id,lastFleet);
+  else if(lastRide) drawRideOn(id,lastRide);
 }
-/* 화면이 보이게 된 뒤 호출 — 없으면 만들고, 있으면 크기 재계산 */
 function relayout(id) {
-  if (!kakaoReady) return;
-  if (!maps[id]) { initMap(id); return; }
-  maps[id].relayout();
-  maps[id].setCenter(new kakao.maps.LatLng(CENTER.lat, CENTER.lng));
+  if (!visible(id) || !kakaoReady) return;
+  initMap(id);
+  const m=maps[id], c=m.getCenter(); m.relayout(); m.setCenter(c);
+  if ((id==="assign-map" || id==="chat-map") && lastRide) drawRideOn(id,lastRide);
 }
-
-/* 카카오 SDK 가 준비될 때까지 기다렸다가 지도를 초기화한다(스크립트 로드 순서 문제 방지). */
-function waitForKakao(tries = 0) {
-  if (window.kakao && kakao.maps && typeof kakao.maps.load === "function") {
-    kakao.maps.load(() => {
-      kakaoReady = true;
-      ["home-map", "call-map", "assign-map", "chat-map"].forEach((id) => {
-        const el = $(id); if (el) { el.classList.remove("fail"); el.textContent = ""; }
-      });
-      if (!$("sc-home").hidden) { relayout("home-map"); refreshFleet(); }
+const mapSizes=new ResizeObserver(entries=>entries.forEach(e=>{
+  if(e.contentRect.width && e.contentRect.height) requestAnimationFrame(()=>relayout(e.target.id));
+}));
+MAP_IDS.forEach(id=>mapSizes.observe($(id)));
+function waitForKakao(tries=0) {
+  if(kakaoReady) return;
+  if(window.kakao?.maps && typeof kakao.maps.load==="function") {
+    const timer=setTimeout(()=>{if(!kakaoReady) showMapError("timeout");},8000);
+    kakao.maps.load(()=>{
+      clearTimeout(timer); kakaoReady=true;
+      MAP_IDS.forEach(id=>{if(visible(id)) relayout(id);});
+      refreshFleet(); if(lastRide) drawRide(lastRide);
     });
     return;
   }
-  if (window.__KAKAO_SDK__ === "error") { showMapError("sdk"); return; }   // 스크립트 자체 로드 실패
-  if (tries > 40) { showMapError("timeout"); return; }                     // 약 8초 대기 후 포기
-  setTimeout(() => waitForKakao(tries + 1), 200);
+  if(window.__KAKAO_SDK__==="error" || tries>40){showMapError(window.__KAKAO_SDK__==="error"?"sdk":"timeout");return;}
+  setTimeout(()=>waitForKakao(tries+1),200);
 }
-
-/* 지도를 못 띄웠을 때 원인을 화면에 알려준다(빈 회색 박스로 방치하지 않음) */
 function showMapError(why) {
-  const host = location.host || "현재 주소";
-  const msg = why === "sdk"
-    ? `지도 스크립트를 불러오지 못했습니다.\n· 인터넷 연결 확인\n· 광고차단 확장 끄기`
-    : `지도를 불러오지 못했습니다.\n카카오 개발자센터 → 내 앱 → 플랫폼 → Web 에\nhttp://${host} 을 등록해 주세요.`;
-  ["home-map", "call-map", "assign-map", "chat-map"].forEach((id) => {
-    const el = $(id);
-    if (el) { el.classList.add("fail"); el.textContent = msg; }
+  const msg=why==="sdk"?"지도를 불러오지 못했어요. 인터넷 연결을 확인해 주세요.":
+    "지도 연결을 확인해 주세요. 카카오 지도 웹 도메인 등록 주소: "+location.origin;
+  MAP_IDS.forEach(id=>{
+    if(maps[id]) return;
+    const el=$(id);el.classList.add("fail");
+    const text=document.createElement("span");text.textContent=msg;
+    const retry=document.createElement("button");retry.textContent="다시 연결";retry.onclick=()=>location.reload();
+    el.replaceChildren(text,retry);
   });
-  console.warn("[지도]", why, "· host:", host);
 }
-
-/* ── 실시간 위치: 주변 차량을 홈/호출 지도에 표시 ── */
-const fleetOv = {};      // mapId -> { vehId: overlay }
 function fleetPin(v) {
-  const d = document.createElement("div");
-  const color = v.incident ? "#E5484D" : v.battery <= 30 ? "#E5484D"
-              : v.battery <= 50 ? "#F5B301" : "#0B1335";
-  d.style.cssText = "display:flex;flex-direction:column;align-items:center;pointer-events:none";
-  const suv = v.car_type === "SUV";
-  d.innerHTML =
-    `<span style="background:${color};color:#fff;font-size:9.5px;font-weight:800;padding:2px 6px;
-      border-radius:8px;border:1.5px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,.3);white-space:nowrap">
-      ${v.incident ? "🚨" : ""}${suv ? "SUV " : ""}${v.battery}%</span>
-     <img src="${suv ? "/static/img/suv.png" : "/static/img/car.png"}"
-       style="width:${suv ? 30 : 22}px;margin-top:-2px;filter:drop-shadow(0 1px 2px rgba(0,0,0,.4))">`;
-  return d;
+  const el=document.createElement("div");el.className="fleet-marker";
+  el.style.background=vehicleColors[v.status]||"#2f6fed";
+  el.title=`${v.plate} · ${v.status_label} · 배터리 ${v.battery}%`;
+  const suv=v.car_type==="SUV", suffix=v.battery<=30?"_red":v.battery<=50?"_yellow":"";
+  const img=document.createElement("img");img.src=`/static/img/${suv?"suv":"car"}${suffix}.png`;img.alt=el.title;
+  el.appendChild(img);return el;
+}
+function drawFleet(id,vehicles) {
+  const m=maps[id];if(!m)return;
+  const box=fleetOv[id]||(fleetOv[id]={}),seen=new Set();
+  vehicles.forEach(v=>{
+    seen.add(String(v.id));const pos=new kakao.maps.LatLng(v.lat,v.lng);
+    if(!box[v.id]){box[v.id]=new kakao.maps.CustomOverlay({position:pos,content:fleetPin(v),zIndex:4});box[v.id].setMap(m);}
+    else{box[v.id].setContent(fleetPin(v));box[v.id].setPosition(pos);}
+  });
+  Object.keys(box).forEach(id=>{if(!seen.has(id)){box[id].setMap(null);delete box[id];}});
 }
 async function refreshFleet() {
-  if (!kakaoReady) return;
-  const activeMap = !$("sc-home").hidden ? "home-map" : (!$("sc-call").hidden ? "call-map" : null);
-  if (!activeMap) return;
-  if (!maps[activeMap]) initMap(activeMap);
-  if (!maps[activeMap]) return;
-  let d;
-  try { d = await api.get("/api/rider/vehicles"); } catch (e) { return; }
-  const m = maps[activeMap];
-  if (!fleetOv[activeMap]) fleetOv[activeMap] = {};
-  const box = fleetOv[activeMap];
-  const seen = new Set();
-  (d.vehicles || []).forEach((v) => {
-    seen.add(v.id);
-    const pos = new kakao.maps.LatLng(v.lat, v.lng);
-    if (!box[v.id]) {
-      box[v.id] = new kakao.maps.CustomOverlay({ position: pos, content: fleetPin(v), zIndex: 4 });
-      box[v.id].setMap(m);
-    } else {
-      box[v.id].setContent(fleetPin(v));
-      box[v.id].setPosition(pos);
-    }
-  });
-  Object.keys(box).forEach((id) => { if (!seen.has(id)) { box[id].setMap(null); delete box[id]; } });
+  if(fleetBusy) return; fleetBusy=true;
+  try {
+    const d=await api.get("/api/rider/vehicles");lastFleet=d.vehicles||[];
+    $("fleet-driving").textContent=lastFleet.filter(v=>["PICKUP","DRIVING"].includes(v.status)).length;
+    $("fleet-waiting").textContent=lastFleet.filter(v=>v.status==="WAITING").length;
+    $("fleet-total").textContent=lastFleet.length;
+    $("fleet-sync").textContent="관제 연동 · "+nowHM()+" 갱신";
+    if(kakaoReady) ["home-map","call-map"].forEach(id=>{if(visible(id)){initMap(id);drawFleet(id,lastFleet);}});
+  } catch(e) { $("fleet-sync").textContent="차량 연결 재시도 중…"; }
+  finally {fleetBusy=false;}
 }
-
-function pin(txt, color) {
-  const d = document.createElement("div");
-  d.style.cssText = `transform:translate(-50%,-100%);background:${color};color:#fff;font-size:11px;
-    font-weight:800;padding:3px 8px;border-radius:9px;box-shadow:0 2px 6px rgba(0,0,0,.3);white-space:nowrap`;
-  d.textContent = txt; return d;
+function pin(txt,color) {
+ const d=document.createElement("div");d.style.cssText=`background:${color};color:#fff;font-size:11px;font-weight:700;padding:4px 8px;border-radius:7px;white-space:nowrap`;
+ d.textContent=txt;return d;
 }
 function carEl(suv) {
-  const d = document.createElement("div");
-  const sz = suv ? 40 : 34;
-  d.style.cssText = `width:${sz}px;height:${sz}px;border-radius:50%;background:#fff;
-    border:2px solid ${suv ? "#0B1335" : "#2F6FED"};display:flex;align-items:center;justify-content:center;
-    box-shadow:0 3px 8px rgba(0,0,0,.3)`;
-  d.innerHTML = `<img src="${suv ? "/static/img/suv.png" : "/static/img/car.png"}"
-    style="width:${suv ? 30 : 24}px">`;
-  return d;
+ const d=document.createElement("div");d.style.cssText="width:34px;height:34px;border:2px solid #2f6fed;background:white;border-radius:50%;display:grid;place-items:center;box-shadow:0 2px 6px #0003";
+ const img=document.createElement("img");img.src=suv?"/static/img/suv.png":"/static/img/car.png";img.style.width="26px";img.alt="배정 차량";d.appendChild(img);return d;
 }
-/* 배정 화면 + 채팅 화면(운행 중) 두 지도에 차량·경로를 그린다. */
-const rideOv = {};   // mapId -> {car, pick, dest, line}
-function drawRideOn(mapId, tr) {
-  if (!kakaoReady) return;
-  if (!maps[mapId]) initMap(mapId);
-  const m = maps[mapId];
-  if (!m) return;
-  if (!rideOv[mapId]) rideOv[mapId] = {};
-  const o = rideOv[mapId];
-  const p = new kakao.maps.LatLng(tr.vehicle.lat, tr.vehicle.lng);
-
-  const isSuvVeh = (tr.vehicle.car_type === "SUV");
-  if (!o.car) { o.car = new kakao.maps.CustomOverlay({ zIndex: 10, content: carEl(isSuvVeh) }); o.car.setMap(m); }
-  o.car.setPosition(p);
-  if (!o.pick) { o.pick = new kakao.maps.CustomOverlay({ zIndex: 6, content: pin("출발", "#36B37E") }); o.pick.setMap(m); }
-  o.pick.setPosition(new kakao.maps.LatLng(tr.pickup.lat, tr.pickup.lng));
-  if (!o.dest) { o.dest = new kakao.maps.CustomOverlay({ zIndex: 6, content: pin("도착", "#E5484D") }); o.dest.setMap(m); }
-  o.dest.setPosition(new kakao.maps.LatLng(tr.dest.lat, tr.dest.lng));
-
-  const r = tr.vehicle.route || [];
-  if (r.length >= 2) {
-    const path = r.map((q) => new kakao.maps.LatLng(q.lat, q.lng));
-    if (!o.line) o.line = new kakao.maps.Polyline({ strokeWeight: 5, strokeColor: "#2F6FED", strokeOpacity: .9 });
-    o.line.setPath(path); o.line.setMap(m);
-  } else if (o.line) o.line.setMap(null);
-
-  m.setCenter(p);      // 차량을 따라간다
+function drawRideOn(mapId,tr) {
+ if(!kakaoReady || !visible(mapId))return;
+ if(!maps[mapId]){initMap(mapId);return;}
+ const m=maps[mapId],o=rideOv[mapId]||(rideOv[mapId]={}),p=new kakao.maps.LatLng(tr.vehicle.lat,tr.vehicle.lng);
+ const suv=tr.vehicle.car_type==="SUV";
+ if(!o.car){o.car=new kakao.maps.CustomOverlay({zIndex:10,content:carEl(suv)});o.car.setMap(m);}
+ if(o.plate!==tr.vehicle.plate){o.car.setContent(carEl(suv));o.plate=tr.vehicle.plate;}
+ o.car.setPosition(p);
+ for(const [key,point,label,color] of [["pick",tr.pickup,"출발","#36b37e"],["dest",tr.dest,"도착","#e5484d"]]){
+  if(!o[key]){o[key]=new kakao.maps.CustomOverlay({zIndex:6,content:pin(label,color)});o[key].setMap(m);}
+  o[key].setPosition(new kakao.maps.LatLng(point.lat,point.lng));
+ }
+ const r=tr.vehicle.route||[];
+ if(r.length>=2){
+  if(!o.line)o.line=new kakao.maps.Polyline({strokeWeight:5,strokeColor:"#2f6fed",strokeOpacity:.9});
+  o.line.setPath(r.map(q=>new kakao.maps.LatLng(q.lat,q.lng)));o.line.setMap(m);
+ }else if(o.line)o.line.setMap(null);
+ m.setCenter(p);
 }
 function drawRide(tr) {
-  // 지금 보이는 화면의 지도에 그린다(배정 화면 / 운행 중 채팅 화면)
-  if (!$("sc-assign").hidden) drawRideOn("assign-map", tr);
-  if (!$("sc-chat").hidden && !$("ride-map-wrap").hidden) {
-    drawRideOn("chat-map", tr);
-    const st = $("ride-status");
-    if (st) {
-      st.textContent = tr.phase === "onboard" ? `목적지로 이동 중 · 약 ${tr.eta_min}분 남음`
-                     : tr.phase === "pickup" ? `차량이 오고 있어요 · 약 ${tr.eta_min}분`
-                     : tr.phase === "incident" ? "사고 대응 중"
-                     : "목적지 도착";
-    }
-  }
+ lastRide=tr;
+ ["assign-map","chat-map"].forEach(id=>{if(visible(id))drawRideOn(id,tr);});
+ $("ride-status").textContent=(tr.phase_label||"운행 중")+(tr.eta_min?` · 약 ${tr.eta_min}분`:"");
 }
 function clearRide() {
-  Object.keys(rideOv).forEach((k) => {
-    const o = rideOv[k];
-    ["car", "pick", "dest", "line"].forEach((n) => { if (o[n]) o[n].setMap(null); });
-    delete rideOv[k];
-  });
+ lastRide=null;
+ Object.keys(rideOv).forEach(k=>{Object.values(rideOv[k]).forEach(o=>{if(o?.setMap)o.setMap(null);});delete rideOv[k];});
 }
+document.querySelectorAll("[data-center]").forEach(b=>b.onclick=()=>{
+ const m=maps[b.dataset.center],c=S.placeCoords?.[S.start]||CENTER;
+ if(m)m.setCenter(new kakao.maps.LatLng(c.lat,c.lng));
+});
 
 /* ───────────────────────── 장소/인원/결제수단 선택 */
 async function loadPlaces() {
@@ -272,10 +239,12 @@ async function loadPlaces() {
 }
 function pickPlace(kind) {
   popup(kind === "end" ? "도착지 선택" : kind === "via" ? "경유지 선택" : "출발지 선택",
-    S.places, (name) => {
+    kind === "via" ? ["경유지 없음", ...S.places] : S.places, (name) => {
+      if (name === "경유지 없음") name = "";
       if (kind === "start") { S.start = name; [$("h-start"), $("c-start"), $("r-start")].forEach((e) => setField(e, name)); }
       if (kind === "end") { S.end = name; [$("h-end"), $("c-end"), $("r-end")].forEach((e) => setField(e, name)); }
-      if (kind === "via") { S.via = name; [$("c-via"), $("r-via")].forEach((e) => setField(e, name)); }
+      if (kind === "via") { S.via = name; [$("c-via"), $("r-via")].forEach((e) => setField(e, name || "경유지")); }
+      if (kind === "start" && S.placeCoords[name]) { Object.assign(CENTER, S.placeCoords[name]); ["home-map","call-map"].forEach(id=>{ if(maps[id]) maps[id].setCenter(new kakao.maps.LatLng(CENTER.lat,CENTER.lng)); }); }
       refreshQuote();
     });
 }
@@ -294,26 +263,28 @@ const PAX = ["1명", "2명", "3명", "4명", "5명", "6명"];
 const METHODS = ["신한 9441", "국민 3021", "카카오페이", "토스페이"];
 ["p-method", "r-method"].forEach((i) => $(i).addEventListener("click", () =>
   popup("결제 수단 선택", METHODS, (v) => {
-    S.method = v;
+    S.method = v; saveLocal();
     [$("p-method"), $("r-method")].forEach((e) => setField(e, v));
     [$("a-method"), $("rd-method")].forEach((e) => e && (e.textContent = v));
   })));
 $("my-pay").addEventListener("click", () =>
-  popup("결제 수단 관리", METHODS, (v) => { S.method = v; toast(`기본 결제 수단이 ${v} 으로 변경되었습니다.`); }));
+  popup("결제 수단 관리", METHODS, (v) => { S.method = v; [$("p-method"), $("r-method")].forEach(e=>setField(e,v)); [$("a-method"),$("rd-method")].forEach(e=>e.textContent=v); toast(`기본 결제 수단이 ${v} 으로 변경되었습니다.`); saveLocal(); }));
 
 /* 예약 시간 */
-const SLOTS = [];
+const SLOTS = [], SLOT_DATES = [];
 (function buildSlots() {
   const d = new Date();
   for (let i = 1; i <= 6; i++) {
     const t = new Date(d.getTime() + i * 3600 * 1000);
+    t.setMinutes(0,0,0); SLOT_DATES.push(t.toISOString());
     SLOTS.push(`${String(t.getMonth() + 1).padStart(2, "0")}/${String(t.getDate()).padStart(2, "0")} ${String(t.getHours()).padStart(2, "0")}:00`);
   }
 })();
 $("r-when").addEventListener("click", () =>
-  popup("예약 날짜/시간 선택", SLOTS, (v) => { S.reserveAt = v; setField($("r-when"), v); }));
+  popup("예약 날짜/시간 선택", SLOTS, (v, index) => { S.reserveAt = v; S.reserveISO=SLOT_DATES[index]; setField($("r-when"), v); }));
 ["h-time", "c-time"].forEach((i) => $(i).addEventListener("click", () =>
-  popup("출발 시간", ["지금", "10분 후", "30분 후"], (v) => {
+  popup("출발 시간", ["지금", "예약 시간 선택"], (v) => {
+    if(v === "예약 시간 선택") { show("reserve"); $("r-when").click(); return; }
     [$("h-time"), $("c-time")].forEach((e) => setField(e, v));
     $("p-time").querySelector("span").textContent = v;
   })));
@@ -322,7 +293,7 @@ $("r-when").addEventListener("click", () =>
 async function refreshQuote() {
   if (!S.start || !S.end) return;
   const q = await api.post("/api/rider/quote", { origin: S.start, destination: S.end, via: S.via });
-  if (!q.ok) return;
+  if (!q.ok) { toast(q.msg || "요금 조회 실패"); return; }
   S.fare = q.fare; S.etaMin = q.eta_min;
   $("p-eta").textContent = q.eta_min + "분";
   $("p-fare").textContent = won(q.fare);
@@ -335,7 +306,7 @@ $("go-call").addEventListener("click", () => {
   if (!S.end) { toast("도착지를 선택해 주세요."); return; }
   show("call"); refreshQuote();
 });
-$("go-reserve").addEventListener("click", () => { show("reserve"); refreshQuote(); });
+$("go-reserve").addEventListener("click", () => { show(S.reserved ? "rdone" : "reserve"); refreshQuote(); });
 
 $("c-next").addEventListener("click", () => {
   if (!S.start || !S.end) { toast("출발지와 도착지를 선택해 주세요."); return; }
@@ -351,7 +322,7 @@ $("c-next").addEventListener("click", () => {
 $("p-go").addEventListener("click", async () => {
   S.request = $("p-req").value.trim();
   $("p-go").disabled = true;
-  toast(`${won(S.fare)} 이 결제되었습니다`);
+  toast("결제수단 확인 · 차량을 배정하고 있어요");
   show("assign");
   $("a-title").textContent = "차량 배정 중…";
   $("a-sub").textContent = "가까운 로보택시를 찾고 있어요";
@@ -360,11 +331,14 @@ $("p-go").addEventListener("click", async () => {
   $("a-fare").textContent = won(S.fare);
   $("a-method").textContent = S.method;
 
-  const b = await api.post("/api/rider/book", {
-    session: sid, origin: S.start, destination: S.end, via: S.via, passengers: S.pax,
+  let b;
+  try { b = await api.post("/api/rider/book", {
+    session: sid, origin: S.start, destination: S.end, via: S.via, passengers: S.pax, payment_method: S.method, request: S.request,
   });
-  $("p-go").disabled = false;
+  } catch(e) { toast("배차 연결을 확인해 주세요."); show("pay"); return; }
+  finally { $("p-go").disabled = false; }
   if (!b.ok) { toast(b.msg || "배차 가능한 차량이 없습니다."); show("pay"); return; }
+  S.rideActive = true;
   S.plate = b.plate; S.fare = b.fare || S.fare; S.carType = b.car_type || "SEDAN";
   $("a-plate").textContent = b.plate;
   $("a-badge").textContent = "배정완료"; $("a-badge").classList.add("on");
@@ -390,9 +364,11 @@ let poll = null, incidentFired = false;
 function startPolling() {
   if (poll) return;
   const tick = async () => {
-    const tr = await api.get("/api/rider/track?session=" + encodeURIComponent(sid));
+    let tr;
+    try { tr = await api.get("/api/rider/track?session=" + encodeURIComponent(sid)); }
+    catch(e) { $("a-sub").textContent="차량 연결 재시도 중…"; return; }
     if (!tr.active) { S.rideActive = false; updateRideBanner(); stopPolling(); return; }
-    drawRide(tr);
+    S.rideActive=true; drawRide(tr);
     updateRideBanner();
     // 사고/고장은 탑승 전(픽업 중)이든 탑승 후든 항상 알린다.
     if (tr.incident && !incidentFired) {
@@ -589,7 +565,6 @@ $("a-board").addEventListener("click", async () => {
   await wait(600);
   bubble("운행 중 언제든 말씀해 주세요.\n예) “여기 말고 정왕역으로 가줘”, “가는 길에 성담스퀘어 들러줘”,\n“에어컨 켜줘”, “얼마나 남았어?”");
   await wait(700);
-  bubble("운행 경로를 선택해주세요.\n10초 내 미선택 시 추천 경로로 운행합니다.");
   // 카카오모빌리티 실시간 경로 옵션(실시간 추천 vs 무료 우선=유료도로 회피) 조회
   let recMin = S.etaMin, freeMin = S.etaMin + 7, viaKakao = false;
   try {
@@ -603,7 +578,13 @@ $("a-board").addEventListener("click", async () => {
     }
   } catch (e) { /* 실패 시 위 기본값 사용 */ }
   S.etaMin = recMin;                       // 추천 경로 ETA 기준으로 갱신
-  if (viaKakao) bubble("🛰️ 카카오 실시간 교통정보를 반영한 경로예요.");
+  if (!viaKakao) {
+    bubble("현재 연결된 시뮬레이션 경로로 이동합니다. 도로 경로 비교는 길찾기 연결 후 이용할 수 있어요.");
+    await bubbleRouteMap("이동 구간", recMin, "예상 경로");
+    offerRouteChange(); return;
+  }
+  bubble("🛰️ 카카오 실시간 교통정보를 반영한 경로예요.");
+  bubble("운행 경로를 선택해주세요.\n10초 내 미선택 시 추천 경로로 운행합니다.");
   await bubbleRouteMap("무료 우선", freeMin, "실시간 추천 " + recMin + "분");
   const box = choices([
     [`실시간추천 ${recMin}분`, () => pickRoute("실시간 추천", recMin)],
@@ -613,6 +594,9 @@ $("a-board").addEventListener("click", async () => {
 });
 
 async function pickRoute(kind, etaMin) {
+  const result=await api.post("/api/rider/route",{session:sid,kind:kind.includes("무료")?"free":"recommend"});
+  if(!result.ok){bubble(result.msg);offerRouteChange();return;}
+  etaMin=result.eta_min;
   S.route = kind;
   if (typeof etaMin === "number") S.etaMin = etaMin;   // 선택한 경로의 실제 ETA 반영
   await wait(500);
@@ -764,29 +748,11 @@ function askCompensation() {
   }]]);
 }
 async function suggestRouteChange() {
-  await wait(400);
-  bubble("현재 경로 상황을 확인했어요.\n아래 경로 중에서 선택해 주세요.");
-  await bubbleRouteMap("변경 추천 경로", Math.max(1, S.etaMin - 3), "혼잡 회피");
+  bubble("변경할 경로를 선택해 주세요.");
   choices([
-    ["변경 추천 경로", async () => {
-      await wait(500);
-      S.routeOpt = "변경 추천 경로";
-      S.etaMin = Math.max(1, S.etaMin - 3);
-      bubble("변경 추천 경로로 운행합니다.\n예상 소요 시간이 " + S.etaMin + "분으로 단축됐어요.");
-      addNoti("경로 변경 · 변경 추천 경로");
-      await wait(800); offerRouteChange();
-    }],
-    ["무료 우선 경로", async () => {
-      await wait(500);
-      S.routeOpt = "무료 우선 경로";
-      bubble("무료 우선 경로로 변경했습니다.");
-      addNoti("경로 변경 · 무료 우선 경로");
-      await wait(800); offerRouteChange();
-    }, true],
-    ["현재 경로 유지", async () => {
-      await wait(400); bubble("현재 경로로 계속 운행합니다.");
-      await wait(800); offerRouteChange();
-    }, true],
+    ["추천 경로",()=>pickRoute("실시간 추천",S.etaMin)],
+    ["무료 우선 경로",()=>pickRoute("무료 우선",S.etaMin),true],
+    ["현재 경로 유지",()=>{bubble("현재 경로로 계속 운행합니다.");offerRouteChange();},true],
   ]);
 }
 async function doDropOff() {
@@ -821,7 +787,7 @@ function resetTripState() {
   });
   [$("c-via"), $("r-via")].forEach((e) => {
     if (e) { e.querySelector("span") ? (e.querySelector("span").textContent = "") : null;
-             e.textContent = "＋ 경유지"; e.classList.remove("filled"); }
+             e.innerHTML = "＋ <span>경유지</span>"; e.classList.remove("filled"); }
   });
   $("p-via").hidden = true;
   $("p-req").value = "";
@@ -864,7 +830,7 @@ async function finishTrip(free) {
     show("home");
   });
   box.appendChild(b); $("chat-log").appendChild(box); scrollChat();
-  S.trips.unshift(rc); renderTrips();
+  S.trips.unshift(rc); renderTrips(); saveLocal();
 }
 function receiptHTML(r) {
   return `<div class="receipt">
@@ -882,7 +848,7 @@ function receiptHTML(r) {
     <div class="rrow"><span>운행 요금(미터기요금)</span><b>${won(r.meter_fare)}</b></div>
     <hr/>
     <div class="rrow hl"><span>결제 금액</span><b>${r.free ? "0원 (무료)" : won(r.fare)}</b></div>
-    <div class="rrow"><span>결제 수단</span><b>${S.method}</b></div>
+    <div class="rrow"><span>결제 수단</span><b>${r.payment_method || S.method}</b></div>
     <div class="rrow"><span>결제 일시</span><b>${r.paid_at}</b></div>
   </div>`;
 }
@@ -1194,52 +1160,80 @@ $("chat-send").addEventListener("click", sendChat);
 $("chat-text").addEventListener("keydown", (e) => { if (e.key === "Enter") sendChat(); });
 
 /* ───────────────────────── 예약 */
-$("r-go").addEventListener("click", async () => {
-  if (!S.start || !S.end) { toast("출발지와 도착지를 선택해 주세요."); return; }
-  if (!S.reserveAt) { toast("예약 시간을 선택해 주세요."); return; }
-  S.reserved = true;
-  $("rd-when").textContent = `${S.reserveAt}에`;
-  $("rd-from").textContent = S.start;
-  $("rd-to").textContent = S.end;
-  $("rd-time").textContent = S.reserveAt;
-  $("rd-method").textContent = S.method;
-  addNoti(`${S.reserveAt} 예약이 완료되었습니다.`);
-  toast("예약이 완료되었습니다.");
-  show("rdone");
+function renderReservation(r) {
+  S.reserved=r && r.status==="pending";
+  if(!r)return;
+  S.reservation=r;
+  $("rd-when").textContent=r.when_label+" 예약";
+  $("rd-from").textContent=r.origin;$("rd-to").textContent=r.destination;
+  $("rd-time").textContent=r.when_label;$("rd-method").textContent=r.payment_method;
+  $("rd-plate").textContent=r.plate||"예약 접수";
+  $("rd-badge").textContent=r.status==="pending"?"예약 대기":r.status==="dispatched"?"배차 완료":r.status==="failed"?"배차 실패":"취소 완료";
+  $("rd-cancel").hidden=r.status!=="pending";
+}
+$("r-go").addEventListener("click",async()=>{
+  if(!S.start||!S.end){toast("출발지와 도착지를 선택해 주세요.");return;}
+  if(!S.reserveAt){toast("예약 시간을 선택해 주세요.");return;}
+  const button=$("r-go");button.disabled=true;
+  try{
+    const r=await api.post("/api/rider/reserve",{session:sid,origin:S.start,destination:S.end,
+      via:S.via,passengers:S.pax,payment_method:S.method,request:$("r-req").value.trim(),when:S.reserveISO});
+    if(!r.ok){toast(r.msg);return;}
+    renderReservation(r.reservation);addNoti(S.reserveAt+" 예약 접수 완료 · 예약 시간에 배차됩니다.");
+    show("rdone");
+  }finally{button.disabled=false;}
 });
-$("rd-cancel").addEventListener("click", () => {
-  popup("예약을 취소할까요?", ["예, 취소합니다", "아니오"], (v) => {
-    if (v.startsWith("예")) {
-      S.reserved = false; addNoti("예약이 취소되었습니다.");
-      toast("예약이 취소되었습니다."); show("home");
-    }
-  });
-});
+$("rd-cancel").addEventListener("click",()=>popup("예약을 취소할까요?",["예, 취소합니다","아니오"],async v=>{
+  if(!v.startsWith("예"))return;
+  const r=await api.post("/api/rider/reservation/cancel",{session:sid});
+  if(!r.ok){toast(r.msg);return;}
+  S.reserved=false;addNoti("예약이 취소되었습니다.");toast("예약이 취소되었습니다.");show("home");
+}));
+function saveLocal(){ localStorage.setItem("rider_data_"+sid,JSON.stringify({method:S.method,notis:S.notis})); }
+function restoreLocal(){
+  try{const d=JSON.parse(localStorage.getItem("rider_data_"+sid)||"{}");S.method=d.method||S.method;S.notis=d.notis||[];}catch(e){}
+  [$("p-method"),$("r-method")].forEach(e=>setField(e,S.method));
+}
+async function restoreRide(tr) {
+  S.rideActive=true;S.started=tr.boarded||tr.phase==="onboard";
+  S.plate=tr.vehicle.plate;S.fare=tr.fare||0;S.etaMin=tr.eta_min||0;S.pax=tr.passengers||1;S.carType=tr.vehicle.car_type;S.free=!!tr.free;
+  S.start=tr.pickup.name;S.end=tr.dest.name;S.method=tr.payment_method||S.method;
+  S.via=tr.via?.name||"";S.request=tr.request||"";
+  ["h-start","c-start","r-start"].forEach(id=>setField($(id),S.start));
+  ["h-end","c-end","r-end"].forEach(id=>setField($(id),S.end));
+  ["c-pax","r-pax"].forEach(id=>setField($(id),S.pax+"명"));
+  ["p-method","r-method"].forEach(id=>setField($(id),S.method));
+  $("a-plate").textContent=S.plate;$("a-method").textContent=S.method;
+  $("a-badge").textContent="배정완료";$("a-badge").classList.add("on");
+  $("a-from").textContent=S.start;$("a-to").textContent=S.end;$("a-fare").textContent=won(S.fare);
+  const img=document.querySelector("#sc-assign .veh-img");img.src=S.carType==="SUV"?"/static/img/suv.png":"/static/img/car.png";
+  $("ride-map-wrap").hidden=!S.started;
+  show(S.started?"chat":"assign");drawRide(tr);
+  if(S.started)bubble("이용 중인 운행을 다시 연결했어요. 목적지: "+S.end);
+  startPolling();
+}
+async function syncState(){
+  const d=await api.get("/api/rider/state?session="+encodeURIComponent(sid));
+  S.trips=d.trips||[];renderTrips();
+  const prev=S.reservation?.status;renderReservation(d.reservation);
+  if(d.reservation?.status==="dispatched" && prev!=="dispatched" && !S.rideActive){
+    addNoti("예약 차량 배차 완료 · "+d.reservation.plate);
+    const tr=await api.get("/api/rider/track?session="+encodeURIComponent(sid));if(tr.active)restoreRide(tr);
+  }
+  if(d.reservation?.status==="failed" && prev!=="failed")addNoti(d.reservation.msg||"예약 배차 실패",true);
+}
 
 /* ───────────────────────── 시작 */
 async function init() {
-  await loadPlaces();
-  renderNotis(); renderTrips();
-
-  // 카카오 SDK 는 rider.js 보다 늦게 준비될 수 있으므로 잠시 기다린다.
-  waitForKakao();
-
-  setTimeout(() => {
-    show("home");                 // show() 안에서 relayout + refreshFleet 호출
-    refreshFleet();
-    setInterval(refreshFleet, 2500);     // 실시간 위치 갱신
-  }, 2200);
-
-  // 새로고침해도 운행 중이면 복구
-  const tr = await api.get("/api/rider/track?session=" + encodeURIComponent(sid));
-  if (tr.active && tr.phase !== "arrived") {
-    S.plate = tr.vehicle.plate; S.fare = tr.fare || 0;
-    S.start = tr.pickup.name; S.end = tr.dest.name;
-    $("a-plate").textContent = S.plate;
-    $("a-badge").textContent = "배정완료"; $("a-badge").classList.add("on");
-    $("a-from").textContent = S.start; $("a-to").textContent = S.end;
-    $("a-fare").textContent = won(S.fare);
-    setTimeout(() => { show("assign"); startPolling(); }, 2300);
-  }
+  restoreLocal();renderNotis();renderTrips();
+  show("home");waitForKakao();refreshFleet();
+  setInterval(refreshFleet,2500);
+  try{
+    await loadPlaces();await syncState();
+    const tr=await api.get("/api/rider/track?session="+encodeURIComponent(sid));
+    if(tr.active)await restoreRide(tr);
+  }catch(e){toast("서버 연결을 확인해 주세요.");}
+  setInterval(()=>syncState().catch(()=>{}),5000);
 }
+window.addEventListener("unhandledrejection",event=>{console.error(event.reason);toast("연결을 확인한 후 다시 시도해 주세요.");});
 init();

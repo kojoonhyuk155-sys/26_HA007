@@ -1,3 +1,4 @@
+@import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css");
 /* ROBITA 고객 앱 — 모바일 전용 스타일 */
 :root{
   --navy:#0B1335; --ink:#1D2233; --sub:#6F7280; --line:#E3E5EB;
@@ -215,3 +216,78 @@ textarea:focus{border-color:var(--blue)}
    말풍선에 확정 너비(82%)를 줘서 지도 캔버스가 제대로 된 크기를 갖게 한다. */
 .bubble.map{width:82%;max-width:82%;padding:0;background:transparent;border-radius:12px;white-space:normal}
 .bubble.map .rmap{margin-top:0}
+
+/* Shared ROBITA visual language: desktop dashboard tokens. */
+
+:root{--navy:#0a0e27;--ink:#1b1f33;--sub:#8a90a2;--line:#e7e9ee;--bg:#f3f4f7;--blue:#2f6fed;--green:#36b37e;--red:#e5484d;--tab-height:calc(68px + env(safe-area-inset-bottom))}
+[hidden]{display:none!important}
+html,body{font-family:"Pretendard",-apple-system,BlinkMacSystemFont,"Malgun Gothic",sans-serif;color:var(--ink);-webkit-font-smoothing:antialiased}
+body{background:var(--bg)}
+button,input,textarea{font-family:inherit}
+button:focus-visible,a:focus-visible{outline:3px solid #2f6fed;outline-offset:3px}
+.phone{max-width:480px;box-shadow:0 0 40px rgba(16,24,64,.08)}
+.app-header{height:56px;flex:none;background:var(--navy);display:flex;align-items:center;justify-content:space-between;padding:0 20px;z-index:21;color:white}
+.app-brand{display:flex;align-items:center;gap:9px;font-size:15px;font-weight:800;letter-spacing:.14em;color:inherit;text-decoration:none}
+.brand-dot{width:9px;height:9px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px rgba(54,179,126,.25)}
+.app-mode{font-size:11px;color:#c7cbe0}
+.screen{top:56px;bottom:var(--tab-height);padding:0 18px}
+.splash{top:0;bottom:0;z-index:22}
+.home-hero{margin:0;padding:24px 2px 8px;background:transparent;color:var(--ink);border-radius:0}
+.hero-txt span{font-size:11px;color:var(--sub)}
+.hero-txt b{font-size:23px;margin-top:8px;letter-spacing:-.7px}
+.hero-txt p{font-size:12px;margin:8px 0 0;color:var(--sub)}
+.fleet-summary{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:14px 0}
+.fleet-summary div{background:white;border:1px solid var(--line);border-radius:12px;padding:12px}
+.fleet-summary span{font-size:11px;color:var(--sub);display:block}
+.fleet-summary b{font-size:23px;display:block;margin-top:4px;font-variant-numeric:tabular-nums}
+.fleet-summary div:first-child b{color:var(--green)}
+.fleet-summary div:nth-child(2) b{color:var(--blue)}
+.card{border:1px solid var(--line);border-radius:14px;padding:16px;box-shadow:0 1px 2px rgba(16,24,64,.04),0 4px 16px rgba(16,24,64,.05);margin:12px 0}
+.home-card{margin-top:12px}
+.f-label{font-size:12px;margin:10px 0 7px;color:#626a80}
+.field{min-width:0;border-radius:9px;font-size:13px;padding:12px 10px;min-height:44px;background:#fafbfc}
+.field span{overflow-wrap:anywhere}
+.field.small{flex:0 0 30%}
+.btn,.choice{border-radius:9px;font-size:13px;min-height:44px}
+.btn-pair{margin-top:14px;gap:8px}
+.map-title{display:flex;justify-content:space-between;align-items:center;font-size:13px}
+.live-label{font-size:10px;color:var(--green);letter-spacing:1px;font-weight:700}
+.map-box{height:235px;border-radius:10px;background:#e9edf4;position:relative}
+.map-box.tall{height:270px}
+.map-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:10px;color:var(--sub);padding-top:9px}
+.map-center{border:1px solid var(--line);background:white;color:var(--ink);border-radius:6px;padding:7px 9px;font-size:10px;cursor:pointer}
+.map-legend{display:flex;gap:16px;font-size:10px;color:#626a80;margin-top:9px}
+.map-legend span{display:flex;align-items:center;gap:5px}
+.map-legend i{width:6px;height:6px;border-radius:50%}
+.fleet-marker{border:2px solid #fff;border-radius:50%;width:20px;height:20px;box-shadow:0 1px 5px #0004;display:flex;align-items:center;justify-content:center}
+.fleet-marker img{width:16px}
+.map-box.fail{flex-direction:column;gap:10px;background:#edf0f6;color:#626a80}
+.map-box.fail button{border:1px solid var(--line);border-radius:8px;background:white;padding:8px 16px;color:var(--ink)}
+.topbar{padding:20px 0 12px}.topbar h2{font-size:19px}
+.chat-screen{padding:0;bottom:var(--tab-height)}
+.chat-screen .topbar{padding:20px 18px 12px}
+.bubble.bot{background:white;border:1px solid var(--line)}
+.tabbar{height:var(--tab-height);padding-bottom:env(safe-area-inset-bottom)}
+.tab{display:flex;flex-direction:column;align-items:center;gap:4px;opacity:1;color:#aeb4c2;font-size:24px;padding:8px}
+.tab small{font-size:10px;font-weight:600}.tab.active{color:var(--blue)}
+.ride-return{bottom:calc(var(--tab-height) + 10px)}
+.veh-card,.info-card{border-radius:12px}.veh-plate b{font-size:21px}
+.pop{left:18px;right:18px;border-radius:14px}.pop-item{text-align:left;font-size:14px;min-height:48px}
+@media(max-width:360px){.screen{padding-left:12px;padding-right:12px}.hero-txt b{font-size:21px}.map-legend{gap:12px}.fleet-summary div{padding:10px}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;scroll-behavior:auto!important}}
+
+#sc-home .home-hero{padding-top:16px;padding-bottom:4px}
+#sc-home .hero-txt b{font-size:22px;margin-top:5px}
+#sc-home .hero-txt p{margin-top:5px;font-size:11px}
+#sc-home .fleet-summary{margin:10px 0;gap:8px}
+#sc-home .fleet-summary div{padding:9px 12px}
+#sc-home .fleet-summary b{font-size:21px;margin-top:2px}
+#sc-home .map-box{height:180px}
+#sc-home .card{padding:14px;margin:10px 0}
+#sc-home .f-label{margin-top:7px;margin-bottom:6px}
+#sc-home .btn{padding:12px}
+.tab[data-tab="noti"] span{font-size:0;width:18px;height:18px;border:2px solid currentColor;border-radius:9px 9px 3px 3px;position:relative;margin:3px}
+.tab[data-tab="noti"] span::after{content:"";width:5px;height:2px;background:currentColor;position:absolute;bottom:-5px;left:5px;border-radius:2px}
+.tab[data-tab="my"] span{font-size:0;width:18px;height:18px;position:relative;margin:3px}
+.tab[data-tab="my"] span::before{content:"";position:absolute;border:2px solid currentColor;width:7px;height:7px;left:5px;top:-1px;border-radius:50%}
+.tab[data-tab="my"] span::after{content:"";position:absolute;border:2px solid currentColor;width:15px;height:7px;left:1px;bottom:-3px;border-radius:8px 8px 2px 2px}

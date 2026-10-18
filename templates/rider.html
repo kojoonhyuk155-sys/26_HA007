@@ -2,12 +2,13 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 <title>ROBITA · 로보택시</title>
 <link rel="stylesheet" href="/static/css/rider.css?v={{ asset_ver }}" />
 </head>
 <body>
 <div class="phone">
+  <header class="app-header"><a class="app-brand" href="/rider"><span class="brand-dot"></span> ROBITA</a><span class="app-mode">로보택시 서비스</span></header>
 
   <!-- 0. 스플래시 -->
   <section class="screen splash" id="sc-splash">
@@ -21,9 +22,9 @@
   <!-- 1. 홈 -->
   <section class="screen" id="sc-home" hidden>
     <div class="home-hero">
-      <div class="hero-txt"><span>안녕하세요</span><b>홍길동님</b></div>
-      <div class="hero-avatar">🧑‍💼</div>
+      <div class="hero-txt"><span>{{ area_name }}</span><b>어디로 이동하시나요?</b><p>실시간 차량 위치를 확인하고 호출하세요.</p></div>
     </div>
+    <div class="fleet-summary" aria-label="실시간 차량 현황"><div><span>운행 중</span><b id="fleet-driving">–</b></div><div><span>대기 중</span><b id="fleet-waiting">–</b></div><div><span>전체 차량</span><b id="fleet-total">–</b></div></div>
     <div class="card home-card">
       <div class="f-label">출발지</div>
       <div class="f-row">
@@ -38,8 +39,8 @@
       </div>
     </div>
     <div class="card">
-      <div class="card-t">◈ 실시간 위치</div>
-      <div class="map-box" id="home-map"></div>
+      <div class="card-t map-title"><span>실시간 차량 위치</span><span class="live-label">● LIVE</span></div>
+      <div class="map-box" id="home-map"></div><div class="map-footer"><span id="fleet-sync">차량 연결 중…</span><button class="map-center" data-center="home-map">출발지로</button></div><div class="map-legend"><span><i style="background:#36b37e"></i>운행</span><span><i style="background:#2f6fed"></i>대기</span><span><i style="background:#f5b301"></i>충전</span><span><i style="background:#e5484d"></i>점검</span></div>
     </div>
     <div class="pad"></div>
   </section>
@@ -48,7 +49,7 @@
   <section class="screen" id="sc-call" hidden>
     <div class="topbar"><button class="back" data-back="home">←</button><h2>로보택시 호출</h2></div>
     <div class="card">
-      <div class="card-t">◈ 실시간 위치</div>
+      <div class="card-t map-title"><span>실시간 차량 위치</span><span class="live-label">● LIVE</span></div>
       <div class="map-box" id="call-map"></div>
     </div>
     <div class="card">
@@ -59,7 +60,7 @@
       </div>
       <div class="f-label">도착지</div>
       <button class="field wide" id="c-end">📍 <span>장소</span></button>
-      <button class="field via" id="c-via">＋ 경유지</button>
+      <button class="field via" id="c-via">＋ <span>경유지</span></button>
       <div class="f-label">탑승 인원</div>
       <button class="field wide" id="c-pax">👤 <span>1명</span></button>
       <button class="btn dark full" id="c-next">결제수단 선택하기</button>
@@ -96,7 +97,7 @@
   <section class="screen" id="sc-assign" hidden>
     <div class="topbar"><button class="back" data-back="home">←</button><h2>로보택시 배정</h2></div>
     <div class="card">
-      <div class="card-t">◈ 실시간 위치</div>
+      <div class="card-t map-title"><span>실시간 차량 위치</span><span class="live-label">● LIVE</span></div>
       <div class="map-box tall" id="assign-map"></div>
     </div>
     <div class="card center">
@@ -148,7 +149,7 @@
       </div>
       <div class="f-label">도착지</div>
       <button class="field wide" id="r-end">📍 <span>장소</span></button>
-      <button class="field via" id="r-via">＋ 경유지</button>
+      <button class="field via" id="r-via">＋ <span>경유지</span></button>
       <div class="f-label">요청 사항</div>
       <textarea id="r-req" placeholder="예) 캐리어 2개 있어요."></textarea>
       <div class="f-label">탑승 인원</div>
@@ -164,13 +165,13 @@
 
   <!-- 7. 예약 완료 -->
   <section class="screen" id="sc-rdone" hidden>
-    <div class="topbar"><button class="back" data-back="home">←</button><h2>로보택시 예약 완료</h2></div>
+    <div class="topbar"><button class="back" data-back="home">←</button><h2>로보택시 예약 접수 완료</h2></div>
     <div class="card center">
       <div class="grip"></div>
       <h3 id="rd-when">-</h3>
-      <p>차량이 도착할 예정입니다</p>
+      <p>예약 시간에 차량 배차를 진행합니다</p>
       <img src="/static/img/car.png" alt="차량" class="veh-img big" />
-      <div class="veh-plate"><b id="rd-plate">RBX 4281</b><span class="badge blue">배정완료</span></div>
+      <div class="veh-plate"><b id="rd-plate">예약 접수</b><span class="badge blue" id="rd-badge">예약 대기</span></div>
       <div class="veh-desc">ROBITA 차량 · 완전 자율주행</div>
       <div class="veh-pay">결제수단 <span id="rd-method">신한 9441</span> 등록 완료</div>
       <button class="btn ghost full" id="rd-cancel">예약취소하기</button>
@@ -216,9 +217,9 @@
   </button>
 
   <nav class="tabbar" id="tabbar">
-    <button class="tab active" data-tab="home">🏠</button>
-    <button class="tab" data-tab="noti">🔔</button>
-    <button class="tab" data-tab="my">👤</button>
+    <button class="tab active" data-tab="home"><span>⌂</span><small>홈</small></button>
+    <button class="tab" data-tab="noti"><span>♧</span><small>알림</small></button>
+    <button class="tab" data-tab="my"><span>○</span><small>마이페이지</small></button>
   </nav>
 
   <div class="dim" id="dim" hidden></div>
@@ -235,9 +236,10 @@
   window.__KAKAO_SDK__ = "loading";
 </script>
 <script
-  src="https://dapi.kakao.com/v2/maps/sdk.js?appkey={{ kakao_js_key }}&autoload=false"
+  async src="https://dapi.kakao.com/v2/maps/sdk.js?appkey={{ kakao_js_key }}&autoload=false"
   onload="window.__KAKAO_SDK__='ok'"
   onerror="window.__KAKAO_SDK__='error'"></script>
+<script>window.RIDER_CONFIG = { center: {{ map_center | tojson }} };</script>
 <script src="/static/js/rider.js?v={{ asset_ver }}"></script>
 </body>
 </html>

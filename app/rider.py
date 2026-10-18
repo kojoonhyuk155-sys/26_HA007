@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime
+from threading import RLock
 
 from . import area
 from . import routing
@@ -33,6 +34,9 @@ def _norm(s: str) -> str:
 
 class RiderService:
     def __init__(self) -> None:
+        self.lock = RLock()
+        self.reservations: dict[str, dict] = {}
+        self.receipts: dict[str, list] = {}
         self.sessions: dict[str, dict] = {}
         self.last_trips: dict[str, dict] = {}  # 이용 후 문의(분실물)용 최근 이용 기록
         self.lost_cases: dict[str, dict] = {}  # 진행 중인 분실물 처리 건
@@ -216,7 +220,18 @@ class RiderService:
                 "distance_km": round(km, 2), "eta_min": eta, "fare": fare}
 
     def book(self, sid: str, origin_name: str, dest_name: str,
-             via_name: str = "", passengers: int = 1) -> dict:
+             via_name: str = "", passengers: int = 1,
+             payment_method: str = "신한 9441", request_text: str = "") -> dict:
+        with self.lock:
+            return self._book(sid, origin_name, dest_name, via_name, passengers,
+                              payment_method, request_text)
+
+    def _book(self, sid: str, origin_name: str, dest_name: str,
+              via_name: str, passengers: int, payment_method: str, request_text: str) -> dict:
+        if self.sessions.get(sid, {}).get("vehicle_id"):
+            return {"ok": False, "msg": "이미 이용 중인 차량이 있습니다."}
+        if not 1 <= passengers <= 6:
+            return {"ok": False, "msg": "탑승 인원은 1~6명입니다."}
         """앱에서 출발지·도착지를 직접 지정해 실제 배차한다(챗봇 없이 호출 버튼용)."""
         q = self.quote(origin_name, dest_name, via_name)
         if not q.get("ok"):
@@ -227,12 +242,32 @@ class RiderService:
         s["fare"] = q["fare"]
         s["passengers"] = max(1, int(passengers or 1))
         s["started_at"] = datetime.now(KST).strftime("%H:%M")
+        s["payment_method"] = payment_method
+        s["request"] = request_text[:1000]
+        s["via"] = q.get("via")
         res = self._dispatch(s)
         if s.get("state") != "riding":
             return {"ok": False, "msg": res.get("reply", "배차 가능한 차량이 없습니다.")}
         card = res.get("ride", {})
         veh = fleet.vehicles.get(s.get("vehicle_id") or "")
         ctype = getattr(veh, "car_type", "SEDAN") if veh else "SEDAN"
+        if veh:
+            s["trip_seq"] = veh.trip_seq
+            veh.trip_distance_km = q["distance_km"]
+            for trip in fleet.trips_log:
+                if trip["seq"] == veh.trip_seq:
+                    trip.update(fare=q["fare"], distance_km=q["distance_km"], payment_method=payment_method,
+                                passengers=passengers, request=request_text[:1000], via=via_name)
+        if veh and q.get("via"):
+            via = q["via"]
+            # The pickup leg stays intact. The first passenger leg goes to the stop.
+            veh.trip_dest_name = via["name"]
+            veh.trip_dest_lat, veh.trip_dest_lng = via["lat"], via["lng"]
+            veh.trip_path = None
+            s["via_pending"] = q["dest"]
+            veh.via_final = q["dest"]
+        if veh and request_text:
+            fleet._log("info", veh.id, f"[고객 요청] {request_text[:1000]}")
         return {"ok": True, "plate": card.get("plate"), "rating": card.get("rating"),
                 "fare": s.get("fare"), "eta_min": q["eta_min"],
                 "dest_name": q["dest"]["name"], "origin_name": q["origin"]["name"],
@@ -261,6 +296,17 @@ class RiderService:
         s["vehicle_id"] = a["id"]
         s["phase"] = "pickup"
         s["state"] = "riding"
+        s["boarded"] = False
+        s["free"] = True
+        replacement = fleet.vehicles.get(a["id"])
+        if replacement:
+            s["trip_seq"] = replacement.trip_seq
+            if s.get("via_pending") and s.get("via"):
+                stop = s["via"]
+                replacement.trip_dest_name = stop["name"]
+                replacement.trip_dest_lat, replacement.trip_dest_lng = stop["lat"], stop["lng"]
+                replacement.trip_path = None
+                replacement.via_final = s["dest"]
         return {"ok": True, "plate": a["plate"], "eta_min": assign_res.get("eta_min"),
                 "msg": f"재배차가 완료되었습니다. {a['plate']} 차량이 약 {assign_res.get('eta_min')}분 후 도착합니다."}
 
@@ -270,6 +316,7 @@ class RiderService:
         if not s:
             return {"ok": False, "msg": "진행 중인 운행이 없습니다."}
         v = fleet.vehicles.get(s.get("vehicle_id") or "")
+        free = bool(free or s.get("free"))
         fare = 0 if free else int(s.get("fare") or 0)
         now = datetime.now(KST)
         start = s.get("started_at") or now.strftime("%H:%M")
@@ -285,13 +332,15 @@ class RiderService:
             "meter_fare": int(s.get("fare") or 0),
             "fare": fare,
             "free": free,
-            "payment_method": "신한 9441",
+            "payment_method": s.get("payment_method", "신한 9441"),
             "paid_at": now.strftime("%y.%m.%d %H:%M"),
             "passengers": s.get("passengers", 1),
         }
         # 차량을 대기로 되돌리고 세션 종료
         if v and not v.incident:
             v.passenger = None
+            v.via_final = None
+            v.await_board = False
             v.path = None
             v.path_i = 0
             v.status = STATUS_WAITING
@@ -307,8 +356,91 @@ class RiderService:
             "date": receipt["date"],
             "ended_at": time.time(),
         }
+        for trip in fleet.trips_log:
+            if trip["seq"] == s.get("trip_seq"):
+                trip.update(status="완료", fare=fare, payment_method=receipt["payment_method"])
+        self.receipts.setdefault(sid, []).insert(0, receipt)
         self.sessions.pop(sid, None)
         return receipt
+
+    def reserve(self, sid: str, origin: str, destination: str, when: str,
+                via: str = "", passengers: int = 1, payment_method: str = "신한 9441",
+                request_text: str = "") -> dict:
+        try:
+            due = datetime.fromisoformat(when)
+            if due.tzinfo is None:
+                due = due.replace(tzinfo=KST)
+        except (ValueError, TypeError):
+            return {"ok": False, "msg": "예약 시간을 확인해 주세요."}
+        if due <= datetime.now(KST):
+            return {"ok": False, "msg": "미래의 시간을 선택해 주세요."}
+        q = self.quote(origin, destination, via)
+        if not q.get("ok"):
+            return q
+        if not 1 <= passengers <= 6:
+            return {"ok": False, "msg": "탑승 인원은 1~6명입니다."}
+        with self.lock:
+            if self.sessions.get(sid, {}).get("vehicle_id"):
+                return {"ok": False, "msg": "현재 운행 종료 후 예약해 주세요."}
+            if self.reservations.get(sid, {}).get("status") in ("pending", "dispatching"):
+                return {"ok": False, "msg": "이미 접수된 예약이 있습니다."}
+            r = {"origin": origin, "destination": destination, "via": via,
+                 "when": due.isoformat(), "when_label": due.astimezone(KST).strftime("%m/%d %H:%M"),
+                 "passengers": passengers, "payment_method": payment_method,
+                 "request": request_text[:1000], "fare": q["fare"], "status": "pending"}
+            self.reservations[sid] = r
+            fleet._log("info", "", f"[고객 예약] {origin}→{destination} · {r['when_label']}")
+            return {"ok": True, "reservation": dict(r)}
+
+    def cancel_reservation(self, sid: str) -> dict:
+        with self.lock:
+            r = self.reservations.get(sid)
+            if not r or r["status"] != "pending":
+                return {"ok": False, "msg": "취소 가능한 예약이 없습니다."}
+            r["status"] = "cancelled"
+            fleet._log("info", "", "[고객 예약] 예약 취소")
+            return {"ok": True}
+
+    def process_reservations(self) -> None:
+        with self.lock:
+            for sid, r in self.reservations.items():
+                if r["status"] != "pending" or datetime.fromisoformat(r["when"]) > datetime.now(KST):
+                    continue
+                r["status"] = "dispatching"
+                result = self.book(sid, r["origin"], r["destination"], r["via"],
+                                   r["passengers"], r["payment_method"], r["request"])
+                r["status"] = "dispatched" if result.get("ok") else "failed"
+                r["msg"] = result.get("msg", "")
+                r["plate"] = result.get("plate", "")
+
+    def state(self, sid: str) -> dict:
+        with self.lock:
+            r = self.reservations.get(sid)
+            return {"reservation": dict(r) if r else None,
+                    "trips": list(self.receipts.get(sid, []))}
+
+    def select_route(self, sid: str, kind: str) -> dict:
+        s = self.sessions.get(sid)
+        if not s or not s.get("vehicle_id"):
+            return {"ok": False, "msg": "진행 중인 운행이 없습니다."}
+        v = fleet.vehicles.get(s["vehicle_id"])
+        if not v or v.incident:
+            return {"ok": False, "msg": "현재 경로를 변경할 수 없습니다."}
+        if not routing.available():
+            return {"ok": False, "msg": "도로 경로 변경은 길찾기 키 설정 후 이용할 수 있어요. 현재 경로를 유지합니다."}
+        destination = s.get("via") if s.get("via_pending") else s["dest"]
+        origin = {"lat": v.lat, "lng": v.lng} if s.get("phase") == "onboard" else s["pickup"]
+        rr = routing.road_route(origin, destination, avoid="toll" if kind == "free" else "")
+        if not rr or not rr.get("points"):
+            return {"ok": False, "msg": "도로 경로를 조회하지 못했어요. 현재 경로를 유지합니다."}
+        pts = [(q["lat"], q["lng"]) for q in rr["points"]]
+        if s.get("phase") == "onboard":
+            v.path, v.path_i = pts, 0
+        else:
+            v.trip_path = pts
+        s["route_kind"] = kind
+        fleet._log("info", v.id, f"[고객 경로] {'무료 우선' if kind == 'free' else '추천'} 경로 적용")
+        return {"ok": True, "eta_min": rr.get("eta_min", 1)}
 
     def board(self, sid: str) -> dict:
         """고객이 '승차 완료'를 누름 → 차량이 목적지로 출발한다."""
@@ -318,6 +450,7 @@ class RiderService:
         res = fleet.board(s["vehicle_id"])
         if res.get("ok"):
             s["phase"] = "onboard"
+            s["boarded"] = True
         return res
 
     def change_passengers(self, sid: str, passengers: int) -> dict:
@@ -418,6 +551,7 @@ class RiderService:
             return {"ok": False, "msg": "지금은 경유지를 추가할 수 없어요."}
         final = s.get("dest")
         s["via_pending"] = final  # 경유 후 돌아갈 최종 목적지
+        v.via_final = final
         v.dest_name, v.dest_lat, v.dest_lng = p["name"], p["lat"], p["lng"]
         v.trip_dest_name, v.trip_dest_lat, v.trip_dest_lng = p["name"], p["lat"], p["lng"]
         v.depot_anchor = (v.lat, v.lng)
@@ -694,10 +828,15 @@ class RiderService:
         v = fleet.vehicles.get(s["vehicle_id"])
         if v and not v.incident:
             v.passenger = None
+            v.via_final = None
+            v.await_board = False
             v.path = None
             v.path_i = 0
             v.status = STATUS_WAITING
             fleet._log("info", v.id, f"{v.plate} 고객앱 호출 취소 · 대기 복귀")
+        for trip in fleet.trips_log:
+            if trip["seq"] == s.get("trip_seq"):
+                trip.update(status="취소", fare=0)
         self.sessions.pop(sid, None)
         return {"ok": True, "msg": "호출이 취소되었습니다."}
 
@@ -764,18 +903,9 @@ class RiderService:
         if not v:
             return {"active": False}
         vd = v.to_dict()
-        # 경유지에 도착했으면 최종 목적지로 이어서 출발
-        if s.get("via_pending") and v.status == STATUS_WAITING and not v.incident:
-            final = s.pop("via_pending")
-            v.dest_name, v.dest_lat, v.dest_lng = final["name"], final["lat"], final["lng"]
-            v.trip_dest_name, v.trip_dest_lat, v.trip_dest_lng = final["name"], final["lat"], final["lng"]
-            v.depot_anchor = (v.lat, v.lng)
-            v.path, v.path_i, v.route_wait = None, 0, 0
-            v.passenger = v.passenger or "고객"
-            v.status = STATUS_DRIVING
-            fleet._try_load_depot_route(v)
-            s["dest"] = final
-            fleet._log("info", v.id, f"{v.plate} 경유지 통과 → {final['name']} 계속 이동")
+        # Stop transitions happen in the simulator, independent of rider polling.
+        if s.get("via_pending") and not getattr(v, "via_final", None):
+            s.pop("via_pending", None)
 
         if v.incident:
             s["phase"] = "incident"  # 사고/고장 → 앱 사고 대응 시나리오
@@ -808,6 +938,11 @@ class RiderService:
             "dest": s["dest"],
             "passengers": s.get("passengers", 1),
             "started_at": s.get("started_at"),
+            "boarded": bool(s.get("boarded")),
+            "free": bool(s.get("free")),
+            "payment_method": s.get("payment_method", "신한 9441"),
+            "via": s.get("via"),
+            "request": s.get("request", ""),
             # 픽업 지점에 정차했을 때만 승차 안내
             "awaiting_board": bool(getattr(v, "await_board", False)
                                    and v.status == STATUS_PICKUP

@@ -174,6 +174,7 @@ class Vehicle:
     trip_dest_lng: float | None = None
     trip_path: list | None = None  # 픽업 후 이동할 도로 경로
     manual: bool = False  # 운영자 수동 호출로 배차되었는지
+    via_final: dict | None = None  # customer stop: continue to the final destination
     trip_seq: int | None = None  # 수동 호출 시 trips_log 항목 번호
     path: list | None = None  # 도로 경로 좌표열
     path_i: int = 0  # 경로에서 다음으로 향할 점의 인덱스
@@ -224,7 +225,7 @@ class Vehicle:
                   "depot_anchor", "charge_elapsed", "charge_start_batt",
                   "repair_elapsed", "replacement_id", "remove_pending",
                   "repositioning", "cruising", "cruise_idle", "tow_wait",
-                  "trip_dest_lat", "trip_dest_lng", "trip_path"):
+                  "trip_dest_lat", "trip_dest_lng", "trip_path", "via_final"):
             d.pop(k, None)  # 내부용 필드는 전송 payload 에서 제외
         # 현재 따라가는 도로 경로 (지도 표시용)
         if self.path and self.path_i < len(self.path):
@@ -820,6 +821,10 @@ class FleetSimulator:
 
         n = int(min(math.ceil(gap), REBALANCE_BATCH))
         movable = self._movable_idle(target[1], target[2], min_km=REBALANCE_RADIUS_KM)
+        # 다른 핫스팟을 지키고 있는 차량은 빼 오지 않는다(핫스팟 간 맞교환 방지)
+        movable = [v for v in movable
+                   if all(_haversine_km(v.lat, v.lng, c[1], c[2]) > REBALANCE_RADIUS_KM
+                          for c in coords)]
         if not movable:
             return
         movable.sort(key=lambda x: _haversine_km(x.lat, x.lng, target[1], target[2]))
@@ -1021,7 +1026,10 @@ class FleetSimulator:
         # 수요 기반 운행 비율 제어
         # 수요 목표와 현재 운행대수를 비교해 배차 예산 결정
         counts = self.status_counts()
-        active_now = counts[STATUS_DRIVING] + counts[STATUS_PICKUP]
+        # 빈 차로 이동 중인 재배치 차량은 '운행 중'에서 제외(승객 수요 목표와 무관)
+        repos = sum(1 for v in self.vehicles.values()
+                    if v.status == STATUS_DRIVING and v.repositioning)
+        active_now = counts[STATUS_DRIVING] - repos + counts[STATUS_PICKUP]
         self._active_target = self.target_active_count()
         gap = self._active_target - active_now
         self._dispatch_budget = math.ceil(gap * DISPATCH_CATCHUP) if gap > 0 else 0
@@ -1141,6 +1149,16 @@ class FleetSimulator:
         # 운행 중에는 배터리가 부족해도 목적지까지 완주
 
         if arrived:
+            if v.via_final:
+                final, v.via_final = v.via_final, None
+                v.dest_name = v.trip_dest_name = final["name"]
+                v.dest_lat = v.trip_dest_lat = final["lat"]
+                v.dest_lng = v.trip_dest_lng = final["lng"]
+                v.depot_anchor = (v.lat, v.lng)
+                v.path, v.path_i, v.route_wait = None, 0, 0
+                self._try_load_depot_route(v)
+                self._log("info", v.id, f"{v.plate} 경유지 통과 → {final['name']}")
+                return
             # 승객 하차 / 운행 완료
             self.session_trips += 1
             v.trips += 1
@@ -1784,6 +1802,21 @@ class FleetSimulator:
         }
 
     # 금일 이용내역(운행 기록)
+    def trips_today(self) -> dict:
+        rows = [dict(t) for t in self.trips_log]
+        completed = [t for t in rows if t.get("status") == "완료"]
+        revenue = sum(t.get("fare") or 0 for t in completed)
+        ratings = [t["rating"] for t in completed if t.get("rating") is not None]
+        return {"rows": rows, "summary": {
+            "count": len(rows), "completed": len(completed),
+            "dispatched": sum(t.get("status") == "배차" for t in rows),
+            "cancelled": sum(t.get("status") == "취소" for t in rows),
+            "revenue": revenue,
+            "avg_fare": round(revenue / len(completed)) if completed else 0,
+            "avg_rating": round(sum(ratings) / len(ratings), 2) if ratings else 0,
+            "manual": sum(t.get("source") == "수동" for t in rows),
+        }}
+
     def record_trip(self, *, plate: str, vehicle_id: str, origin: str,
                     destination: str, distance_km: float | None, fare: int | None,
                     eta_min: int | None = None, status: str = "완료",
@@ -1853,6 +1886,7 @@ class FleetSimulator:
         v._arrived_logged = False
         v.status = STATUS_PICKUP
         v.trip_pickup_name = origin.get("name", "출발지")
+        v.trip_origin = v.trip_pickup_name
         v.trip_dest_name = destination.get("name", "목적지")
         v.trip_dest_lat, v.trip_dest_lng = destination["lat"], destination["lng"]
         v.passenger = f"{v.trip_pickup_name} → {v.trip_dest_name}"
@@ -1878,7 +1912,7 @@ class FleetSimulator:
             v.trip_path = None
         seq = self.record_trip(
             plate=v.plate, vehicle_id=v.id,
-            origin=v.trip_origin, destination=v.dest_name,
+            origin=v.trip_pickup_name, destination=v.trip_dest_name,
             distance_km=route_res.get("distance_km"),
             fare=assign_res.get("est_fare"),
             eta_min=assign_res.get("eta_min"),

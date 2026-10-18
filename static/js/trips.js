@@ -24,11 +24,11 @@ function renderSummary(s) {
 }
 
 function statusBadge(status) {
-  return status === "완료"
-    ? `<span class="badge done">완료</span>`
-    : `<span class="badge wait">배차</span>`;
+  const label = ["완료", "취소", "배차", "운행중"].includes(status) ? status : "배차";
+  return `<span class="badge ${status === "완료" ? "done" : "wait"}">${label}</span>`;
 }
 function sourceTag(source) {
+  if ((source || "").startsWith("고객앱")) return `<span class="src manual">고객 앱</span>`;
   return source === "수동"
     ? `<span class="src manual">수동</span>`
     : `<span class="src auto">자동</span>`;
