@@ -1,0 +1,19 @@
+# 비밀값(키) — 절대 커밋하지 말 것
+.env
+
+# 파이썬
+__pycache__/
+*.pyc
+
+# 데이터베이스/로그
+*.db
+*.sqlite3
+
+# 가상환경
+.venv/
+venv/
+
+# OS/IDE
+.DS_Store
+.idea/
+.vscode/
