@@ -102,32 +102,16 @@ ROBITA는 (1)을 에이전트 자율 운영으로, (2)를 관리자 개입 경�
 
 
 
+
 <h2>💡 2. 팀원 소개</h2>
 
 <table>
   <tr>
-    <td align="center" width="20%">
-      <img src="docs/images/team1.jpg" width="110" height="110" style="object-fit: cover;">
-    </td>
-    <td align="center" width="20%">
-      <img src="docs/images/team2.jpg" width="110" height="110" style="object-fit: cover;">
-    </td>
-    <td align="center" width="20%">
-      <img src="docs/images/team3.jpg" width="110" height="110" style="object-fit: cover;">
-    </td>
-    <td align="center" width="20%">
-      <img src="docs/images/team4.jpg" width="110" height="110" style="object-fit: cover;">
-    </td>
-    <td align="center" width="20%">
-      <img src="docs/images/team5.png" width="110" height="110" style="object-fit: cover;">
-    </td>
-  </tr>
-  <tr>
-    <th align="center">멘티 · 팀장</th>
-    <th align="center">멘티 · 팀원</th>
-    <th align="center">멘티 · 팀원</th>
-    <th align="center">멘티 · 팀원</th>
-    <th align="center">멘토</th>
+    <th align="center" width="20%">멘티 · 팀장</th>
+    <th align="center" width="20%">멘티 · 팀원</th>
+    <th align="center" width="20%">멘티 · 팀원</th>
+    <th align="center" width="20%">멘티 · 팀원</th>
+    <th align="center" width="20%">멘토</th>
   </tr>
   <tr>
     <td align="center">
@@ -139,9 +123,9 @@ ROBITA는 (1)을 에이전트 자율 운영으로, (2)를 관리자 개입 경�
       · 프론트엔드 개발
     </td>
     <td align="center">
-  · AI&nbsp;에이전트&nbsp;개발<br>
-  · 데이터 분석
-</td>
+      · AI&nbsp;에이전트&nbsp;개발<br>
+      · 데이터 분석
+    </td>
     <td align="center">
       · 백엔드 개발<br>
       · 시스템 통합
@@ -152,6 +136,7 @@ ROBITA는 (1)을 에이전트 자율 운영으로, (2)를 관리자 개입 경�
     </td>
   </tr>
 </table>
+
 
 
 
