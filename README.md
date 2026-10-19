@@ -171,9 +171,7 @@ ROBITA는 (1)을 에이전트 자율 운영으로, (2)를 관리자 개입 경�
 
 ### 소프트웨어 구성
 
-<p align="center">
-  <img src="docs/images/software_structure.png" width="520" alt="소프트웨어 구성">
-</p>
+![소프트웨어 구성](docs/images/software_structure.png)
 
 ### 에이전트 판단 흐름
 
