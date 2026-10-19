@@ -103,38 +103,37 @@ ROBITA는 (1)을 에이전트 자율 운영으로, (2)를 관리자 개입 경�
 
 
 
+
 <h2>💡 2. 팀원 소개</h2>
 
 <table>
-  
-<tr>
-  <th align="center" width="20%">멘티 &middot; 팀장</th>
-  <th align="center" width="20%">멘티 &middot; 팀원</th>
-  <th align="center" width="20%">멘티 &middot; 팀원</th>
-  <th align="center" width="20%">멘티 &middot; 팀원</th>
-  <th align="center" width="20%">멘토</th>
-</tr>
-
+  <tr>
+    <th align="center" width="20%">멘티<br>팀장</th>
+    <th align="center" width="20%">멘티<br>팀원</th>
+    <th align="center" width="20%">멘티<br>팀원</th>
+    <th align="center" width="20%">멘티<br>팀원</th>
+    <th align="center" width="20%">멘토</th>
+  </tr>
   <tr>
     <td align="center">
-      · 프로젝트 기획, 총괄<br>
-      · 개발 일정 관리
+      프로젝트 기획·총괄<br>
+      개발 일정 관리
     </td>
     <td align="center">
-      · UI/UX 기획<br>
-      · 프론트엔드 개발
+      UI/UX 기획<br>
+      프론트엔드 개발
     </td>
     <td align="center">
-      · AI&nbsp;에이전트&nbsp;개발<br>
-      · 데이터 분석
+      AI 에이전트 개발<br>
+      데이터 분석
     </td>
     <td align="center">
-      · 백엔드 개발<br>
-      · 시스템 통합
+      백엔드 개발<br>
+      시스템 통합
     </td>
     <td align="center">
-      · 기술 자문<br>
-      · 개발 방향 검토
+      기술 자문<br>
+      개발 방향 검토
     </td>
   </tr>
 </table>
